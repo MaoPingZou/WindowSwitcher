@@ -18,6 +18,9 @@
 | 纯图标 UI | 居中浮层，圆角半透明背景，仅显示 app 图标 + 选中高亮框 |
 | 排除隐藏窗口 | 基于 `visible=true` 过滤，隐藏 / 最小化的窗口不出现 |
 | 跟随光标屏幕 | 浮层显示在鼠标当前所在的屏幕上 |
+| 延迟字母提示 | 按住 `Cmd` 超过 350ms，图标右上角才出现字母；快速 `Cmd+Tab` 时界面和原来完全一样 |
+| `Cmd+字母` 直接跳转 | 切换器打开后按 `Cmd+字母` 立即切到对应 app，不必先松开 `Cmd`；不等提示出现也能按 |
+| 稳定的字母映射 | `appKeys` 固定常用 app 的字母；其余按名称自动分配，只取决于 app 集合，不随 MRU 顺序变化 |
 
 ---
 
@@ -64,9 +67,18 @@ spoon.WindowSwitcher:start()
 | 操作 | 按键 |
 | --- | --- |
 | 下一个 app | `Cmd+Tab`（按住 `Cmd` 连续 `Tab`） |
-| 上一个 app | 按住 `Cmd` 时按 `Shift` |
+| 上一个 app | 按住 `Cmd` 时按 `Shift`，或 `Cmd+Shift+Tab` |
 | 确认切换 | 松开 `Cmd` |
+| 直接跳到某个 app | 按住 `Cmd` 时按该 app 的字母 |
 | 取消 | `Esc` |
+
+切换器打开期间，没有对应 app 的 `Cmd+字母` 也会被吞掉，不会误触发前台 app 的 `Cmd+Q` / `Cmd+W`。
+
+### 字母分配规则
+
+1. `appKeys` 里配置的字母优先，并且**全局保留**：即使该 app 没开，这个字母也不会分给别人。
+2. 其余 app 按 `.app` 文件名排序（微信是 `WeChat.app`），依次取名称里第一个空闲字母：先单词首字母（含驼峰，`WeChat` → `w`、`c`），再其余字母；纯中文名退到 bundleID 末段（`com.tencent.WeWorkMac` → `WeWorkMac`）。
+3. 只用 `a`–`z`，超过 26 个 app 时多出来的不显示字母。
 
 ---
 
@@ -79,14 +91,25 @@ hs.loadSpoon("WindowSwitcher")
 spoon.WindowSwitcher.iconSize = 96   -- 图标尺寸
 spoon.WindowSwitcher.padding = 20    -- 容器内边距
 spoon.WindowSwitcher.gap = 16        -- 图标间距
+spoon.WindowSwitcher.hintDelay = 0.35  -- 字母提示延迟（秒）
+spoon.WindowSwitcher.appKeys = {      -- 固定字母
+  ["com.google.Chrome"] = "c",
+  ["com.tencent.xinWeChat"] = "w",
+  ["com.googlecode.iterm2"] = "t",
+}
 spoon.WindowSwitcher:start()
 ```
+
+查 app 的 bundleID：`osascript -e 'id of app "Google Chrome"'`。
 
 | 配置项 | 默认 | 说明 |
 | --- | --- | --- |
 | `iconSize` | `72` | app 图标尺寸 |
 | `padding` | `16` | 浮层内边距 |
 | `gap` | `14` | 图标之间的间距 |
+| `hintDelay` | `0.35` | 按住 `Cmd` 多久后显示字母（秒），`nil` 不显示（`Cmd+字母` 仍可用） |
+| `hintSize` | `22` | 字母角标尺寸 |
+| `appKeys` | `{}` | 固定字母 `{ [bundleID] = "c" }` |
 
 ---
 
