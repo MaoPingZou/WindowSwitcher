@@ -21,6 +21,7 @@
 | 延迟字母提示 | 按住 `Cmd` 超过 350ms，图标右上角才出现字母；快速 `Cmd+Tab` 时界面和原来完全一样 |
 | `Cmd+字母` 直接跳转 | 切换器打开后按 `Cmd+字母` 立即切到对应 app，不必先松开 `Cmd`；不等提示出现也能按 |
 | 稳定的字母映射 | `appKeys` 固定常用 app 的字母；其余按名称自动分配，只取决于 app 集合，不随 MRU 顺序变化 |
+| 左手单手切换 | 自动分配优先用左手 home 行 `F D S A`，其次上排 `R E W Q`、下排 `V C X Z`；拇指按住 `Cmd`，其余四指不用离开原位 |
 
 ---
 
@@ -76,9 +77,24 @@ spoon.WindowSwitcher:start()
 
 ### 字母分配规则
 
+左手拇指按住 `Cmd` 时，最顺手的是左手区的 12 个键（`T` / `G` / `B` 需要食指横向伸展，不优先使用）：
+
+```
+上排   Q  W  E  R  ·T
+home   A  S  D  F  ·G     ← 优先级最高
+下排   Z  X  C  V  ·B
+```
+
 1. `appKeys` 里配置的字母优先，并且**全局保留**：即使该 app 没开，这个字母也不会分给别人。
-2. 其余 app 按 `.app` 文件名排序（微信是 `WeChat.app`），依次取名称里第一个空闲字母：先单词首字母（含驼峰，`WeChat` → `w`、`c`），再其余字母；纯中文名退到 bundleID 末段（`com.tencent.WeWorkMac` → `WeWorkMac`）。
-3. 只用 `a`–`z`，超过 26 个 app 时多出来的不显示字母。
+2. 其余 app 按 `.app` 文件名排序（微信是 `WeChat.app`），分多轮认领字母，每轮只处理还没分到的 app：
+   1. 名称**首字母**中落在左手区的（含驼峰，`Google Chrome` → `c`，`Safari` → `s`）
+   2. 名称其余字母中落在左手区的（`iTerm` → `e`）
+   3. 左手区按 `F D S A → R E W Q → V C X Z` 顺序取第一个空闲键（`Notion` 名字里没有左手区字母，F 被 Finder 占了就取 `d`）
+   4. 左手区用完后：名称里的任意字母，再按 `T G B → 右手由近到远` 兜底
+3. 纯中文名取不到字母时，退到 bundleID 末段（`com.tencent.WeWorkMac` → `WeWorkMac`）。
+4. 只用 `a`–`z`，超过 26 个 app 时多出来的不显示字母。
+
+建议 `appKeys` 里固定的字母也放在左手区，这样所有常用 app 都能单手切换。
 
 ---
 
@@ -95,7 +111,7 @@ spoon.WindowSwitcher.hintDelay = 0.35  -- 字母提示延迟（秒）
 spoon.WindowSwitcher.appKeys = {      -- 固定字母
   ["com.google.Chrome"] = "c",
   ["com.tencent.xinWeChat"] = "w",
-  ["com.googlecode.iterm2"] = "t",
+  ["com.googlecode.iterm2"] = "e",
 }
 spoon.WindowSwitcher:start()
 ```
@@ -110,6 +126,8 @@ spoon.WindowSwitcher:start()
 | `hintDelay` | `0.35` | 按住 `Cmd` 多久后显示字母（秒），`nil` 不显示（`Cmd+字母` 仍可用） |
 | `hintSize` | `22` | 字母角标尺寸 |
 | `appKeys` | `{}` | 固定字母 `{ [bundleID] = "c" }` |
+| `preferredKeys` | `"fdsarewqvcxz"` | 自动分配优先使用的字母，按优先级排列 |
+| `fallbackKeys` | `"tgbyhnujmikolp"` | 优先字母用完后的兜底顺序 |
 
 ---
 

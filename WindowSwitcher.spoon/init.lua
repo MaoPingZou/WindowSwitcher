@@ -17,7 +17,7 @@ obj.__index = obj
 
 -- 元数据
 obj.name = "WindowSwitcher"
-obj.version = "1.1.0"
+obj.version = "1.2.0"
 obj.author = "MaoPingZou"
 obj.license = "MIT - https://opensource.org/licenses/MIT"
 obj.homepage = "https://github.com/MaoPingZou/WindowSwitcher"
@@ -29,6 +29,11 @@ obj.gap = 14        -- 图标间距
 obj.hintDelay = 0.35  -- 按住 Cmd 多久后显示字母角标（秒），nil 则不显示（Cmd+字母 跳转仍可用）
 obj.hintSize = 22     -- 字母角标尺寸
 obj.appKeys = {}      -- 固定字母 { [bundleID] = "c" }；未配置的 app 按名称自动分配
+-- 自动分配时优先使用的字母（按优先级排列）：左手 home 行 → 上排 → 下排，每排从食指往外。
+-- 左手拇指按住 Cmd 时，其余四指不用离开键盘左半区就能按到；T/G/B 需要食指横向伸展，不放在这里
+obj.preferredKeys = "fdsarewqvcxz"
+-- 优先字母用完后的兜底顺序：先 T/G/B，再右手由近到远
+obj.fallbackKeys = "tgbyhnujmikolp"
 
 -- ===== 内部状态 =====
 function obj:init()
@@ -60,7 +65,8 @@ function obj:_collect()
 end
 
 -- 名称中的候选字母：先单词首字母（含驼峰，如 WeChat -> w, c），再其余字母
-local function keyCandidates(name, out)
+-- 首字母同时记入 initialsOut（可选），用于优先匹配
+local function keyCandidates(name, out, initialsOut)
   local initials, others = {}, {}
   local prev = ""
   for ch in name:gmatch(".") do
@@ -70,16 +76,26 @@ local function keyCandidates(name, out)
     end
     prev = ch
   end
-  for _, ch in ipairs(initials) do out[#out + 1] = ch end
+  for _, ch in ipairs(initials) do
+    out[#out + 1] = ch
+    if initialsOut then initialsOut[#initialsOut + 1] = ch end
+  end
   for _, ch in ipairs(others) do out[#out + 1] = ch end
 end
 
 -- 给 entries 分配字母（e.key）。appKeys 里的字母全局保留，保证固定映射不被抢；
--- 其余 app 按名称排序后依次取名称里第一个空闲字母，结果只取决于 app 集合，不随 MRU 顺序变化
+-- 其余 app 按名称排序，结果只取决于 app 集合，不随 MRU 顺序变化。
+-- 分多轮进行，每轮只处理上一轮没分到字母的 app，保证好记的字母先被认领：
+--   1. 名称首字母中落在 preferredKeys 里的（Chrome -> c、Safari -> s）
+--   2. 名称其余字母中落在 preferredKeys 里的（Notion 没有左手区字母，留到下一轮）
+--   3. preferredKeys 中第一个空闲字母（home 行优先）
+--   4. 名称里的任意字母
+--   5. fallbackKeys 中第一个空闲字母
 function obj:_assignKeys(entries)
   local used, auto = {}, {}
   for _, k in pairs(self.appKeys) do used[k:lower()] = true end
   for _, e in ipairs(entries) do
+    e.key = nil
     local bid = e.app:bundleID()
     local fixed = bid and self.appKeys[bid]
     if fixed then
@@ -87,23 +103,46 @@ function obj:_assignKeys(entries)
     else
       -- .app 文件名一般是英文（如 微信 -> WeChat.app），优先用它取字母
       local path = e.app:path()
-      e.label = (path and path:match("([^/]+)%.app/?$")) or e.app:name() or bid or ""
-      auto[#auto + 1] = e
+      local label = (path and path:match("([^/]+)%.app/?$")) or e.app:name() or bid or ""
+      local cands, initials = {}, {}
+      keyCandidates(label, cands, initials)
+      keyCandidates(e.app:name() or "", cands, initials)
+      -- 纯中文名（如 企业微信.app）取不到字母时，退到 bundleID 末段（com.tencent.WeWorkMac -> WeWorkMac）
+      keyCandidates((bid or ""):match("[^.]*$"), cands, initials)
+      auto[#auto + 1] = { e = e, label = label, cands = cands, initials = initials }
     end
   end
   table.sort(auto, function(a, b) return a.label < b.label end)
-  for _, e in ipairs(auto) do
-    local cands = {}
-    keyCandidates(e.label, cands)
-    keyCandidates(e.app:name() or "", cands)
-    -- 纯中文名（如 企业微信.app）取不到字母时，退到 bundleID 末段（com.tencent.WeWorkMac -> WeWorkMac）
-    keyCandidates((e.app:bundleID() or ""):match("[^.]*$"), cands)
-    keyCandidates("abcdefghijklmnopqrstuvwxyz", cands)
-    for _, ch in ipairs(cands) do
-      if not used[ch] then
-        e.key, used[ch] = ch, true
-        break
+
+  local preferred, prefSet = {}, {}
+  for ch in self.preferredKeys:lower():gmatch("[a-z]") do
+    preferred[#preferred + 1] = ch
+    prefSet[ch] = true
+  end
+  local fallback = {}
+  for ch in (self.fallbackKeys .. "abcdefghijklmnopqrstuvwxyz"):lower():gmatch("[a-z]") do
+    fallback[#fallback + 1] = ch
+  end
+
+  local function pick(list, filter)
+    for _, ch in ipairs(list) do
+      if not used[ch] and (not filter or filter[ch]) then
+        used[ch] = true
+        return ch
       end
+    end
+  end
+
+  local rounds = {
+    function(a) return pick(a.initials, prefSet) end,
+    function(a) return pick(a.cands, prefSet) end,
+    function() return pick(preferred) end,
+    function(a) return pick(a.cands) end,
+    function() return pick(fallback) end,
+  }
+  for _, round in ipairs(rounds) do
+    for _, a in ipairs(auto) do
+      if not a.e.key then a.e.key = round(a) end
     end
   end
 end
